@@ -15,8 +15,9 @@ from typing import Dict, List, Optional
 
 __version__ = "0.1.0"
 
-CONFIG_FILE = Path.home() / ".config" / "my-secrets.toml"
-DEFAULT_SECRETS_FILE = Path.home() / ".my" / "secrets.gpg"
+CONFIG_DIR = Path.home() / ".config" / "my-secrets"
+CONFIG_FILE = CONFIG_DIR / "config.toml"
+DEFAULT_SECRETS_FILE = CONFIG_DIR / "secrets.gpg"
 
 
 class Color:
@@ -89,7 +90,7 @@ def require_config() -> Config:
 
 def save_config(gpg_recipient: str, secrets_file: Path) -> None:
     """Save configuration to file."""
-    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     content = f'gpg_recipient = "{gpg_recipient}"\nsecrets_file = "{secrets_file}"\n'
     CONFIG_FILE.write_text(content)
 
@@ -418,7 +419,9 @@ def cmd_export(args: argparse.Namespace) -> int:
 
 def cmd_init(args: argparse.Namespace) -> int:
     """Initialize a new secrets file with interactive setup."""
-    secrets_file = DEFAULT_SECRETS_FILE
+    secrets_file = args.secrets_file.expanduser() if args.secrets_file else DEFAULT_SECRETS_FILE
+
+    print(f"\n{Color.BOLD}Secrets file:{Color.RESET} {secrets_file}")
 
     # Check for existing secrets
     if secrets_file.exists() and not args.force:
@@ -588,6 +591,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # init command
     init_parser = subparsers.add_parser("init", help="Initialize new secrets file")
     init_parser.add_argument("-f", "--force", action="store_true", help="Overwrite existing file")
+    init_parser.add_argument("-s", "--secrets-file", type=Path, help="Custom path for secrets file")
     init_parser.set_defaults(func=cmd_init)
 
     args = parser.parse_args(argv)

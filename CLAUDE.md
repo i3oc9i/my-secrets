@@ -16,8 +16,8 @@ Single-file CLI tool (`my_secrets.py`) that manages GPG-encrypted secrets stored
 
 ### Key Components
 
-- **Config**: Stored at `~/.config/my-secrets.toml`, contains `gpg_recipient` and `secrets_file` path
-- **Secrets**: Encrypted with GPG at `~/.my/secrets.gpg`, decrypted TOML with `[category]` sections
+- **Config**: Stored at `~/.config/my-secrets/config.toml`, contains `gpg_recipient` and `secrets_file` path
+- **Secrets**: Encrypted with GPG at `~/.config/my-secrets/secrets.gpg` (customizable), decrypted TOML with `[category]` sections
 - **Commands**: `init`, `list`, `get`, `set`, `delete`, `search`, `export`, `import`
 
 ### Data Flow

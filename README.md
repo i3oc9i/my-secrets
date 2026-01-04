@@ -8,19 +8,35 @@ Manage GPG-encrypted secrets in TOML format.
 uv pip install -e .
 ```
 
-## Getting Started
+## Initialization
 
-Initialize with interactive setup:
+Before using my-secrets, run the interactive setup:
 
 ```bash
 my-secrets init
 ```
 
 This will:
-- List available GPG keys
-- Let you select one or create a new key
-- Save config to `~/.config/my-secrets.toml`
-- Create encrypted secrets file at `~/.my/secrets.gpg`
+1. List available GPG keys on your system
+2. Let you select an existing key or create a new one
+3. Create the config and encrypted secrets file
+
+### Init Options
+
+```bash
+my-secrets init                          # Default location
+my-secrets init -s ~/secrets.gpg         # Custom secrets file location
+my-secrets init -s /secure/secrets.gpg   # Any custom path
+my-secrets init -f                       # Force reinitialize (overwrite)
+```
+
+### Files Created
+
+```
+~/.config/my-secrets/
+├── config.toml      # Configuration (GPG key, secrets path)
+└── secrets.gpg      # Encrypted secrets (or custom path with -s)
+```
 
 ## Usage
 
@@ -65,12 +81,14 @@ REDIS_URL = "redis://localhost"
 
 ## Configuration
 
-Config file: `~/.config/my-secrets.toml`
+Config file: `~/.config/my-secrets/config.toml`
 
 ```toml
 gpg_recipient = "your@email.com"
-secrets_file = "/Users/you/.my/secrets.gpg"
+secrets_file = "~/.config/my-secrets/secrets.gpg"
 ```
+
+The `secrets_file` path can be customized during init or by editing the config.
 
 ## Requirements
 
