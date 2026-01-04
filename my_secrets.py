@@ -717,6 +717,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     import_parser.add_argument("-f", "--force", action="store_true", help="Skip confirmation")
     import_parser.set_defaults(func=cmd_import)
 
+    # Reorder action groups to show commands before options
+    for i, group in enumerate(parser._action_groups):
+        if group.title == "commands":
+            parser._action_groups.insert(1, parser._action_groups.pop(i))
+            break
+
     args = parser.parse_args(argv)
 
     if args.command is None:
