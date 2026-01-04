@@ -64,10 +64,14 @@ def require_config() -> Config:
     return config
 
 
-def save_config(gpg_recipient: str, secrets_file: Path) -> None:
+def save_config(gpg_email: str, secrets_file: Path, gpg_name: str = "", gpg_key_id: str = "") -> None:
     """Save configuration to file."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    content = f'gpg_recipient = "{gpg_recipient}"\nsecrets_file = "{secrets_file}"\n'
+    if gpg_name and gpg_key_id:
+        gpg_line = f'gpg_recipient = "{gpg_email}"  # {gpg_name}, {gpg_key_id}'
+    else:
+        gpg_line = f'gpg_recipient = "{gpg_email}"'
+    content = f'{gpg_line}\nsecrets_file = "{secrets_file}"\n'
     CONFIG_FILE.write_text(content)
 
 
@@ -105,6 +109,15 @@ def list_gpg_keys() -> List[Dict[str, str]]:
         keys.append(current_key)
 
     return keys
+
+
+def find_gpg_key(search: str) -> Optional[Dict[str, str]]:
+    """Find a GPG key by name, email, or key ID. Returns full key info or None."""
+    keys = list_gpg_keys()
+    for key in keys:
+        if search in (key.get("name", ""), key.get("email", ""), key.get("id", "")):
+            return key
+    return None
 
 
 def create_gpg_key(name: str, email: str) -> Optional[str]:
@@ -426,21 +439,8 @@ def cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_init(args: argparse.Namespace) -> int:
-    """Initialize a new secrets file with interactive setup."""
-    secrets_file = args.secrets_file.expanduser() if args.secrets_file else DEFAULT_SECRETS_FILE
-
-    print(f"\n{Color.BOLD}Secrets file:{Color.RESET} {secrets_file}")
-
-    # Check for existing secrets
-    if secrets_file.exists() and not args.force:
-        print(f"{Color.YELLOW}Secrets file already exists: {secrets_file}{Color.RESET}")
-        confirm = input("Reinitialize? This will overwrite existing secrets. [y/N]: ")
-        if confirm.lower() != 'y':
-            print(f"{Color.GRAY}Cancelled.{Color.RESET}")
-            return 0
-
-    # List available GPG keys
+def select_gpg_key_interactive() -> Optional[Dict[str, str]]:
+    """Interactive GPG key selection. Returns full key info or None if cancelled."""
     keys = list_gpg_keys()
 
     print(f"\n{Color.BOLD}Available GPG keys:{Color.RESET}")
@@ -465,12 +465,11 @@ def cmd_init(args: argparse.Namespace) -> int:
         choice_num = int(choice)
     except (ValueError, KeyboardInterrupt):
         print(f"\n{Color.GRAY}Cancelled.{Color.RESET}")
-        return 0
+        return None
 
     # Handle key selection
     if keys and 1 <= choice_num <= len(keys):
-        selected_key = keys[choice_num - 1]
-        gpg_recipient = selected_key.get("email") or selected_key.get("id", "")
+        return keys[choice_num - 1]
     elif choice_num == len(keys) + 1 or (not keys and choice_num == 1):
         # Create new key
         print(f"\n{Color.BOLD}Create new GPG key:{Color.RESET}")
@@ -479,32 +478,125 @@ def cmd_init(args: argparse.Namespace) -> int:
             email = input("  Email: ").strip()
         except KeyboardInterrupt:
             print(f"\n{Color.GRAY}Cancelled.{Color.RESET}")
-            return 0
+            return None
 
         if not name or not email:
             print(f"{Color.RED}Name and email are required.{Color.RESET}")
-            return 1
+            return None
 
         key_id = create_gpg_key(name, email)
         if not key_id:
-            return 1
+            return None
 
-        gpg_recipient = email
         print(f"{Color.GREEN}✓ Created GPG key: {key_id}{Color.RESET}")
+        return {"name": name, "email": email, "id": key_id}
     else:
         print(f"{Color.RED}Invalid selection.{Color.RESET}")
-        return 1
+        return None
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    """Initialize a new secrets file with interactive setup."""
+    secrets_file = args.secrets_file.expanduser() if args.secrets_file else DEFAULT_SECRETS_FILE
+
+    # Validate GPG key early if provided
+    gpg_key_info = None
+    if args.gpg_key:
+        gpg_key_info = find_gpg_key(args.gpg_key)
+        if gpg_key_info is None:
+            print(f"{Color.RED}Error: GPG key '{args.gpg_key}' not found{Color.RESET}", file=sys.stderr)
+            return 1
+
+    print(f"\n{Color.BOLD}Secrets file:{Color.RESET} {secrets_file}")
+
+    # Check for existing secrets
+    if secrets_file.exists() and not args.force:
+        print(f"{Color.YELLOW}Secrets file already exists: {secrets_file}{Color.RESET}")
+        confirm = input("Reinitialize? This will overwrite existing secrets. [y/N]: ")
+        if confirm.lower() != 'y':
+            print(f"{Color.GRAY}Cancelled.{Color.RESET}")
+            return 0
+
+    if gpg_key_info is None:
+        gpg_key_info = select_gpg_key_interactive()
+        if gpg_key_info is None:
+            return 1
+
+    gpg_email = gpg_key_info.get("email", "")
+    gpg_name = gpg_key_info.get("name", "")
+    gpg_key_id = gpg_key_info.get("id", "")
 
     # Save config
-    save_config(gpg_recipient, secrets_file)
+    save_config(gpg_email, secrets_file, gpg_name, gpg_key_id)
     print(f"{Color.GREEN}✓ Saved config: {CONFIG_FILE}{Color.RESET}")
 
     # Create empty secrets file
-    config = Config(gpg_recipient=gpg_recipient, secrets_file=secrets_file)
+    config = Config(gpg_recipient=gpg_email, secrets_file=secrets_file)
     encrypt_secrets("", config)
 
     print(f"{Color.GREEN}✓ Initialized secrets file: {secrets_file}{Color.RESET}")
-    print(f"{Color.GRAY}GPG recipient: {gpg_recipient}{Color.RESET}")
+    print(f"{Color.GRAY}GPG recipient: {gpg_email}{Color.RESET}")
+    return 0
+
+
+def cmd_config(args: argparse.Namespace) -> int:
+    """View or modify configuration."""
+    config = load_config()
+
+    if config is None:
+        print(f"{Color.RED}Not initialized. Run 'my-secrets init' first.{Color.RESET}", file=sys.stderr)
+        return 1
+
+    # Show current config if no options
+    if args.gpg_key is None and not args.secrets_file:
+        # Look up full key info
+        key_info = find_gpg_key(config.gpg_recipient)
+        if key_info:
+            name = key_info.get("name", "")
+            key_id = key_info.get("id", "")
+            print(f"gpg_recipient = {config.gpg_recipient}  # {name}, {key_id}")
+        else:
+            print(f"gpg_recipient = {config.gpg_recipient}")
+        print(f"secrets_file = {config.secrets_file}")
+        return 0
+
+    new_key_info: Optional[Dict[str, str]] = None
+    new_secrets_file = config.secrets_file
+
+    # Handle --gpg-key (with or without value)
+    if args.gpg_key is not None:
+        # Decrypt with old key first
+        content = decrypt_secrets()
+
+        if args.gpg_key == "":
+            # Interactive selection
+            new_key_info = select_gpg_key_interactive()
+            if new_key_info is None:
+                return 0  # Cancelled
+        else:
+            # Validate key exists
+            new_key_info = find_gpg_key(args.gpg_key)
+            if new_key_info is None:
+                print(f"{Color.RED}Error: GPG key '{args.gpg_key}' not found{Color.RESET}", file=sys.stderr)
+                return 1
+
+        # Re-encrypt with new key
+        new_email = new_key_info.get("email", "")
+        temp_config = Config(gpg_recipient=new_email, secrets_file=config.secrets_file)
+        encrypt_secrets(content, temp_config)
+        print(f"{Color.GREEN}✓ Secrets re-encrypted with new key{Color.RESET}")
+
+    # Handle --secrets-file
+    if args.secrets_file:
+        new_secrets_file = args.secrets_file.expanduser()
+
+    # Save config with full key info if changed, otherwise just update secrets_file
+    if new_key_info:
+        save_config(new_key_info.get("email", ""), new_secrets_file,
+                    new_key_info.get("name", ""), new_key_info.get("id", ""))
+    else:
+        save_config(config.gpg_recipient, new_secrets_file)
+    print(f"{Color.GREEN}✓ Config updated{Color.RESET}")
     return 0
 
 
@@ -573,7 +665,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     init_parser = subparsers.add_parser("init", help="Initialize new secrets file")
     init_parser.add_argument("-f", "--force", action="store_true", help="Overwrite existing file")
     init_parser.add_argument("-s", "--secrets-file", type=Path, help="Custom path for secrets file")
+    init_parser.add_argument("--gpg-key", help="GPG recipient (skip interactive selection)")
     init_parser.set_defaults(func=cmd_init)
+
+    # config command
+    config_parser = subparsers.add_parser("config", help="View or modify configuration")
+    config_parser.add_argument("--gpg-key", nargs="?", const="", help="Set GPG recipient (interactive if no value)")
+    config_parser.add_argument("--secrets-file", type=Path, help="Set secrets file path")
+    config_parser.set_defaults(func=cmd_config)
 
     # list command
     list_parser = subparsers.add_parser("list", help="List secrets")
