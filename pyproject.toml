@@ -23,7 +23,7 @@ classifiers = [
 ]
 
 [project.urls]
-Repository = "https://github.com/i3oc9i/my-secrets"
+Repository = "https://github.com/i3oc9i/my_secrets"
 
 [project.scripts]
 my-secrets = "my_secrets:main"
